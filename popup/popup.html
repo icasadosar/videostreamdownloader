@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VideoStreamDownloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+            <rect x="1" y="5" width="15" height="14" rx="3" ry="3"></rect>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>VideoStreamDownloader</h1>
+          <span class="sub-text">Capturador de emisiones HLS / MP4</span>
+        </div>
+      </div>
+      <button id="btnClear" class="icon-btn" title="Limpiar lista">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18"></path>
+          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Tab Info Banner -->
+    <div class="tab-banner">
+      <div class="status-indicator"></div>
+      <span id="tabDomain">Buscando transmisiones en la pestaña...</span>
+    </div>
+
+    <!-- Main Content List -->
+    <main class="content-area">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="10 8 16 12 10 16 10 8"></polygon>
+          </svg>
+        </div>
+        <h3>No se detectaron vídeos aún</h3>
+        <p>Inicia la reproducción de un vídeo para capturar automáticamente la transmisión.</p>
+      </div>
+
+      <div id="mediaList" class="media-list" style="display: none;"></div>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast" style="display: none;">
+      <span id="toastMsg">¡Notificación!</span>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>VideoStreamDownloader v1.1 • Descarga directa en navegador</span>
+    </footer>
+  </div>
+
+  <script src="hlsDownloader.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
