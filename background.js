@@ -1,4 +1,4 @@
-// background.js - Service Worker VideoStreamDownloader Manifest V3
+// background.js - Service Worker VideoStreamDownloader (Filtrado de Master Playlists)
 
 const tabMediaStore = new Map();
 
@@ -56,6 +56,11 @@ function getMediaTypeLabel(url) {
   return 'Stream de Vídeo';
 }
 
+function isMasterUrl(url) {
+  const lower = url.toLowerCase();
+  return lower.includes('master') || lower.includes('playlist.m3u8');
+}
+
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0) return;
@@ -68,6 +73,22 @@ chrome.webRequest.onBeforeRequest.addListener(
     }
 
     const tabStore = tabMediaStore.get(details.tabId);
+
+    // Si la nueva URL es una Master Playlist:
+    if (isMasterUrl(url)) {
+      // Eliminar sub-playlists secundarias (como index.m3u8) que se hayan capturado antes
+      for (const [storedUrl, item] of tabStore.entries()) {
+        if (!isMasterUrl(storedUrl) && storedUrl.includes('.m3u8')) {
+          tabStore.delete(storedUrl);
+        }
+      }
+    } else if (url.includes('.m3u8')) {
+      // Si no es master pero ya tenemos una master playlist guardada, ignorar sub-playlists secundarias
+      const hasMaster = Array.from(tabStore.keys()).some(u => isMasterUrl(u));
+      if (hasMaster) {
+        return;
+      }
+    }
 
     if (tabStore.has(url)) return;
 
@@ -121,6 +142,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
         }
       }
+    }
+
+    // Filtrar preferentemente solo Master Playlists si existen
+    const masterItems = items.filter(i => isMasterUrl(i.url));
+    if (masterItems.length > 0) {
+      items = masterItems;
     }
 
     sendResponse({ items: items });

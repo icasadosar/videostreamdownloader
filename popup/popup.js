@@ -50,7 +50,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const items = response.items;
+      let items = response.items;
+
+      // Filtrar para mostrar prioritariamente solo las transmisiones Master Playlist
+      const masterItems = items.filter(i => i.url.toLowerCase().includes('master') || i.url.toLowerCase().includes('playlist.m3u8'));
+      if (masterItems.length > 0) {
+        items = masterItems;
+      }
+
       if (!items || items.length === 0) {
         showEmptyState();
       } else {
@@ -74,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
       card.className = 'media-card';
       card.id = `card_${item.id}`;
 
-      const isMaster = item.url.includes('master');
+      const isMaster = item.url.toLowerCase().includes('master') || item.type.includes('Master');
       const badgeStyle = isMaster ? 'background-color: #3df59e; color: #000;' : '';
 
       const titleClean = (item.pageTitle || activeTabTitle).replace(/[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ_-]/g, '').trim();
@@ -103,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </div>
 
-        <!-- Comandos secundarios con --referer -->
+        <!-- Comandos secundarios -->
         <div class="action-row" style="margin-top: 8px;">
           <button class="btn-action btn-copy-ffmpeg" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(titleClean)}">
             ⚡ FFmpeg
