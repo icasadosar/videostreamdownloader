@@ -1,4 +1,4 @@
-// popup.js - VideoStreamDownloader
+// popup.js - VideoStreamDownloader (Modo Sencillo vs Opciones Avanzadas)
 
 function escapeHtml(str) {
   return String(str || '')
@@ -16,10 +16,36 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnClear = document.getElementById('btnClear');
   const toast = document.getElementById('toast');
   const toastMsg = document.getElementById('toastMsg');
+  const chkAdvanced = document.getElementById('chkAdvanced');
 
   let currentTabId = null;
   let activeTabTitle = 'video_stream';
   let activeTabOrigin = 'https://rfcylf.isquad.tv/';
+  let isAdvancedEnabled = false;
+
+  // Cargar preferencia guardada del checkbox "Opciones avanzadas"
+  chrome.storage.local.get(['showAdvancedOptions'], (result) => {
+    isAdvancedEnabled = !!result.showAdvancedOptions;
+    chkAdvanced.checked = isAdvancedEnabled;
+    toggleAdvancedRows(isAdvancedEnabled);
+  });
+
+  // Evento al cambiar el checkbox
+  chkAdvanced.addEventListener('change', (e) => {
+    isAdvancedEnabled = e.target.checked;
+    chrome.storage.local.set({ showAdvancedOptions: isAdvancedEnabled });
+    toggleAdvancedRows(isAdvancedEnabled);
+  });
+
+  function toggleAdvancedRows(show) {
+    document.querySelectorAll('.action-row.advanced-options').forEach(el => {
+      if (show) {
+        el.classList.add('show');
+      } else {
+        el.classList.remove('show');
+      }
+    });
+  }
 
   chrome.tabs.query({ active: true }, (tabs) => {
     let targetTab = null;
@@ -52,7 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       let items = response.items;
 
-      // Filtrar para mostrar prioritariamente solo las transmisiones Master Playlist
       const masterItems = items.filter(i => i.url.toLowerCase().includes('master') || i.url.toLowerCase().includes('playlist.m3u8'));
       if (masterItems.length > 0) {
         items = masterItems;
@@ -86,6 +111,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const titleClean = (item.pageTitle || activeTabTitle).replace(/[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ_-]/g, '').trim();
 
+      const advancedShowClass = isAdvancedEnabled ? 'show' : '';
+
       card.innerHTML = `
         <div class="media-card-header">
           <span class="badge-type" style="${badgeStyle}">${escapeHtml(item.type)}</span>
@@ -94,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="media-title" title="${escapeHtml(titleClean)}">${escapeHtml(titleClean || 'Vídeo Detectado')}</div>
         <div class="media-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
 
-        <!-- Descarga Directa Button -->
+        <!-- Botón único y destacado de Descarga Directa -->
         <button class="btn-download-direct" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}">
           📥 Descargar Vídeo Directo (.mp4 / .ts)
         </button>
@@ -110,8 +137,8 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </div>
 
-        <!-- Comandos secundarios -->
-        <div class="action-row" style="margin-top: 8px;">
+        <!-- Opciones avanzadas ocultas por defecto (se muestran solo al marcar el checkbox) -->
+        <div class="action-row advanced-options ${advancedShowClass}">
           <button class="btn-action btn-copy-ffmpeg" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(titleClean)}">
             ⚡ FFmpeg
           </button>
@@ -170,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             target.style.opacity = '1';
             target.innerHTML = '⚠️ Reintentar Descarga';
             statusText.textContent = `Error: ${errorMsg}`;
-            showToast('Error en descarga directa. Prueba con la opción FFmpeg.');
+            showToast('Error en descarga directa. Activa Opciones Avanzadas para FFmpeg.');
           }
         );
 

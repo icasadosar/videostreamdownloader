@@ -19,7 +19,7 @@
 
 body {
   width: 400px;
-  height: 540px;
+  height: 520px;
   background-color: var(--bg-primary);
   color: var(--text-main);
   overflow: hidden;
@@ -68,6 +68,12 @@ body {
   color: var(--text-muted);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .icon-btn {
   background: transparent;
   border: 1px solid var(--border-color);
@@ -91,15 +97,22 @@ body {
 .tab-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   padding: 8px 16px;
   background-color: #16171c;
   font-size: 11px;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-color);
-  white-space: nowrap;
+}
+
+.domain-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
+  max-width: 250px;
 }
 
 .status-indicator {
@@ -108,6 +121,33 @@ body {
   border-radius: 50%;
   background-color: var(--accent-color);
   box-shadow: 0 0 8px var(--accent-color);
+  flex-shrink: 0;
+}
+
+/* Checkbox Opciones Avanzadas */
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  background: #20222a;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.advanced-toggle:hover {
+  color: var(--text-main);
+  border-color: #3d4150;
+}
+
+.advanced-toggle input[type="checkbox"] {
+  accent-color: var(--accent-color);
+  cursor: pointer;
 }
 
 .content-area {
@@ -153,7 +193,7 @@ body {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: 14px;
   transition: border-color 0.15s ease;
 }
 
@@ -184,8 +224,8 @@ body {
 }
 
 .media-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: #ffffff;
   margin-bottom: 4px;
   white-space: nowrap;
@@ -210,8 +250,8 @@ body {
   background-color: var(--accent-color);
   color: #000000;
   border: none;
-  padding: 9px;
-  font-size: 12px;
+  padding: 12px;
+  font-size: 13px;
   font-weight: 700;
   border-radius: 6px;
   cursor: pointer;
@@ -219,7 +259,6 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin-bottom: 8px;
   transition: background-color 0.2s ease, transform 0.1s ease;
 }
 
@@ -231,10 +270,17 @@ body {
   transform: scale(0.98);
 }
 
-/* Secondary Actions Row */
-.action-row {
-  display: flex;
+/* Secondary Actions Row (Opciones avanzadas ocultas por defecto) */
+.action-row.advanced-options {
+  display: none;
   gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.action-row.advanced-options.show {
+  display: flex;
 }
 
 .btn-action {
@@ -264,7 +310,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 10px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .progress-info {
