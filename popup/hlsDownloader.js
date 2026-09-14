@@ -1,4 +1,4 @@
-// hlsDownloader.js - Módulo de descarga directa de HLS (.m3u8) en el navegador con bypass 401
+// hlsDownloader.js - Módulo de descarga directa HLS compatible con Service Worker y Popup
 
 class HlsDownloader {
   constructor(m3u8Url, filename, onProgress, onComplete, onError) {
@@ -14,7 +14,6 @@ class HlsDownloader {
     try {
       this.onProgress(0, 'Conectando con el servidor HLS...');
 
-      // 1. Descargar manifiesto m3u8 con credenciales y políticas de referer
       const response = await fetch(this.m3u8Url, {
         method: 'GET',
         credentials: 'omit',
@@ -27,7 +26,6 @@ class HlsDownloader {
       
       const playlistText = await response.text();
 
-      // 2. Si es Master Playlist, seleccionar la variante de vídeo de mayor resolución
       if (playlistText.includes('#EXT-X-STREAM-INF')) {
         const lines = playlistText.split('\n');
         let subPlaylistUrl = null;
@@ -97,16 +95,34 @@ class HlsDownloader {
 
     this.onProgress(99, 'Ensamblando archivo de vídeo...');
     const blob = new Blob(chunks, { type: 'video/mp2t' });
-    const blobUrl = URL.createObjectURL(blob);
-
-    chrome.downloads.download({
-      url: blobUrl,
-      filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
-      saveAs: true
-    }, () => {
-      this.onProgress(100, '¡Descarga completada!');
-      this.onComplete();
-    });
+    
+    // Crear data URL / Blob en Service Worker o llamar a API de descargas
+    if (typeof FileReader !== 'undefined') {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result;
+        chrome.downloads.download({
+          url: dataUrl,
+          filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
+          saveAs: false
+        }, () => {
+          this.onProgress(100, '¡Descarga completada!');
+          this.onComplete();
+        });
+      };
+      reader.readAsDataURL(blob);
+    } else {
+      // Fallback
+      const blobUrl = URL.createObjectURL(blob);
+      chrome.downloads.download({
+        url: blobUrl,
+        filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
+        saveAs: false
+      }, () => {
+        this.onProgress(100, '¡Descarga completada!');
+        this.onComplete();
+      });
+    }
   }
 
   cancel() {
@@ -114,4 +130,9 @@ class HlsDownloader {
   }
 }
 
-window.HlsDownloader = HlsDownloader;
+if (typeof self !== 'undefined') {
+  self.HlsDownloader = HlsDownloader;
+}
+if (typeof window !== 'undefined') {
+  window.HlsDownloader = HlsDownloader;
+}

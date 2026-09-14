@@ -1,4 +1,4 @@
-// popup.js - VideoStreamDownloader (Modo Sencillo vs Opciones Avanzadas + Nombre del Partido)
+// popup.js - VideoStreamDownloader (Descarga persistente en segundo plano)
 
 function escapeHtml(str) {
   return String(str || '')
@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeTabTitle = 'video_stream';
   let activeTabOrigin = 'https://rfcylf.isquad.tv/';
   let isAdvancedEnabled = false;
+  let pollIntervals = new Map();
 
   chrome.storage.local.get(['showAdvancedOptions'], (result) => {
     isAdvancedEnabled = !!result.showAdvancedOptions;
@@ -122,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="media-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
 
         <!-- Descarga Directa Button -->
-        <button class="btn-download-direct" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}" data-title="${escapeHtml(displayTitle)}">
+        <button class="btn-download-direct" id="btn_${item.id}" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}" data-title="${escapeHtml(displayTitle)}">
           📥 Descargar Vídeo Directo (.mp4 / .ts)
         </button>
 
@@ -152,9 +153,93 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
 
       mediaListContainer.appendChild(card);
+
+      // Comprobar si hay una descarga en segundo plano activa para este ítem al abrir el popup
+      checkBackgroundDownloadState(item.id);
     });
 
     attachCardEventListeners();
+  }
+
+  function checkBackgroundDownloadState(itemId) {
+    chrome.runtime.sendMessage({ action: 'GET_BACKGROUND_DOWNLOAD_STATUS', itemId: itemId }, (res) => {
+      if (chrome.runtime.lastError || !res || !res.exists) return;
+
+      const target = document.getElementById(`btn_${itemId}`);
+      const progressBox = document.getElementById(`progress_${itemId}`);
+      const statusText = document.getElementById(`statusText_${itemId}`);
+      const percentText = document.getElementById(`percentText_${itemId}`);
+      const barFill = document.getElementById(`barFill_${itemId}`);
+
+      if (!target || !progressBox) return;
+
+      progressBox.style.display = 'block';
+      barFill.style.width = `${res.percent}%`;
+      percentText.textContent = `${res.percent}%`;
+      statusText.textContent = res.status;
+
+      if (res.isCompleted) {
+        target.innerHTML = '✅ ¡Descargado!';
+        target.style.backgroundColor = '#22c55e';
+        target.style.opacity = '1';
+        target.disabled = true;
+      } else if (res.isError) {
+        target.disabled = false;
+        target.style.opacity = '1';
+        target.innerHTML = '⚠️ Reintentar Descarga';
+      } else {
+        target.disabled = true;
+        target.style.opacity = '0.6';
+        target.innerHTML = '⌛ Descargando en segundo plano...';
+        startPollingDownloadState(itemId);
+      }
+    });
+  }
+
+  function startPollingDownloadState(itemId) {
+    if (pollIntervals.has(itemId)) return;
+
+    const intervalId = setInterval(() => {
+      chrome.runtime.sendMessage({ action: 'GET_BACKGROUND_DOWNLOAD_STATUS', itemId: itemId }, (res) => {
+        if (chrome.runtime.lastError || !res || !res.exists) {
+          clearInterval(intervalId);
+          pollIntervals.delete(itemId);
+          return;
+        }
+
+        const target = document.getElementById(`btn_${itemId}`);
+        const statusText = document.getElementById(`statusText_${itemId}`);
+        const percentText = document.getElementById(`percentText_${itemId}`);
+        const barFill = document.getElementById(`barFill_${itemId}`);
+
+        if (barFill) barFill.style.width = `${res.percent}%`;
+        if (percentText) percentText.textContent = `${res.percent}%`;
+        if (statusText) statusText.textContent = res.status;
+
+        if (res.isCompleted) {
+          clearInterval(intervalId);
+          pollIntervals.delete(itemId);
+          if (target) {
+            target.innerHTML = '✅ ¡Descargado!';
+            target.style.backgroundColor = '#22c55e';
+            target.style.opacity = '1';
+            target.disabled = true;
+          }
+          showToast('¡Vídeo guardado en tus descargas!');
+        } else if (res.isError) {
+          clearInterval(intervalId);
+          pollIntervals.delete(itemId);
+          if (target) {
+            target.disabled = false;
+            target.style.opacity = '1';
+            target.innerHTML = '⚠️ Reintentar Descarga';
+          }
+          showToast('Error en descarga. Activa Opciones Avanzadas para FFmpeg.');
+        }
+      });
+    }, 500);
+
+    pollIntervals.set(itemId, intervalId);
   }
 
   function attachCardEventListeners() {
@@ -163,47 +248,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = e.currentTarget;
         const url = target.getAttribute('data-url');
         const itemId = target.getAttribute('data-id');
-        const matchTitle = target.getAttribute('data-title') || 'partido_isquad';
+        const matchTitle = target.getAttribute('data-title') || 'video_stream';
 
         const progressBox = document.getElementById(`progress_${itemId}`);
         const statusText = document.getElementById(`statusText_${itemId}`);
-        const percentText = document.getElementById(`percentText_${itemId}`);
-        const barFill = document.getElementById(`barFill_${itemId}`);
 
         target.disabled = true;
         target.style.opacity = '0.6';
-        target.innerHTML = '⌛ Descargando...';
+        target.innerHTML = '⌛ Descargando en segundo plano...';
         progressBox.style.display = 'block';
 
-        // Sanear el nombre del archivo preservando letras y espacios
         const sanitizeFilename = matchTitle
           .replace(/[\\/:*?"<>|]/g, '_')
           .trim();
 
-        const downloader = new window.HlsDownloader(
-          url,
-          `${sanitizeFilename}.mp4`,
-          (percent, message) => {
-            barFill.style.width = `${percent}%`;
-            percentText.textContent = `${percent}%`;
-            statusText.textContent = message;
-          },
-          () => {
-            target.innerHTML = '✅ ¡Descargado!';
-            target.style.backgroundColor = '#22c55e';
-            target.style.opacity = '1';
-            showToast('¡Vídeo guardado en tus descargas!');
-          },
-          (errorMsg) => {
+        // Solicitar al Service Worker de fondo que inicie la descarga
+        chrome.runtime.sendMessage({
+          action: 'START_BACKGROUND_DOWNLOAD',
+          itemId: itemId,
+          url: url,
+          filename: `${sanitizeFilename}.mp4`,
+          tabId: currentTabId
+        }, (res) => {
+          if (chrome.runtime.lastError) {
             target.disabled = false;
             target.style.opacity = '1';
             target.innerHTML = '⚠️ Reintentar Descarga';
-            statusText.textContent = `Error: ${errorMsg}`;
-            showToast('Error en descarga directa. Activa Opciones Avanzadas para FFmpeg.');
+            statusText.textContent = 'Error al iniciar descarga en segundo plano';
+            return;
           }
-        );
-
-        downloader.start();
+          startPollingDownloadState(itemId);
+        });
       });
     });
 

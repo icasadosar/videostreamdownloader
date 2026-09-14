@@ -1,6 +1,9 @@
-// background.js - Service Worker VideoStreamDownloader (Deduplicación de Master Playlists)
+// background.js - Service Worker VideoStreamDownloader (Motor de descarga en segundo plano)
+
+importScripts('popup/hlsDownloader.js');
 
 const tabMediaStore = new Map();
+const activeDownloads = new Map(); // downloadId -> { url, filename, percent, status, isCompleted, isError, errorMsg, downloader }
 
 async function setupRefererRules() {
   try {
@@ -74,8 +77,6 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     const tabStore = tabMediaStore.get(details.tabId);
 
-    // Al recibir un nuevo master.m3u8 (por renovación de token o recarga del reproductor),
-    // reemplazamos las listas anteriores por la más reciente
     if (isMasterUrl(url)) {
       for (const [storedUrl] of tabStore.entries()) {
         if (storedUrl.includes('.m3u8')) {
@@ -128,6 +129,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabMediaStore.delete(tabId);
 });
 
+// Mensajería y control de descargas en segundo plano
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'SET_TAB_TITLE') {
     const tabId = sender.tab ? sender.tab.id : request.tabId;
@@ -159,7 +161,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     const masterItems = items.filter(i => isMasterUrl(i.url));
     if (masterItems.length > 0) {
-      // Devolver únicamente la lista maestra más reciente (la última registrada)
       items = [masterItems[masterItems.length - 1]];
     }
 
@@ -172,6 +173,88 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     tabMediaStore.delete(tabId);
     chrome.action.setBadgeText({ tabId: tabId, text: '' });
     sendResponse({ success: true });
+    return true;
+  }
+
+  // --- MOTOR DE DESCARGA EN SEGUNDO PLANO ---
+  if (request.action === 'START_BACKGROUND_DOWNLOAD') {
+    const { itemId, url, filename, tabId } = request;
+
+    if (activeDownloads.has(itemId)) {
+      sendResponse({ status: 'already_running' });
+      return true;
+    }
+
+    const downloadState = {
+      itemId: itemId,
+      url: url,
+      filename: filename,
+      percent: 0,
+      status: 'Conectando con el servidor HLS...',
+      isCompleted: false,
+      isError: false,
+      errorMsg: '',
+      tabId: tabId
+    };
+
+    const downloader = new self.HlsDownloader(
+      url,
+      filename,
+      (percent, message) => {
+        downloadState.percent = percent;
+        downloadState.status = message;
+
+        // Actualizar el badge en la barra del navegador para mostrar porcentaje de descarga
+        if (tabId) {
+          chrome.action.setBadgeText({ tabId: tabId, text: `${percent}%` });
+          chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#3df59e' });
+          chrome.action.setBadgeTextColor({ tabId: tabId, color: '#000000' });
+        }
+      },
+      () => {
+        downloadState.isCompleted = true;
+        downloadState.percent = 100;
+        downloadState.status = '¡Descarga completada!';
+
+        if (tabId) {
+          chrome.action.setBadgeText({ tabId: tabId, text: '✅' });
+        }
+      },
+      (errorMsg) => {
+        downloadState.isError = true;
+        downloadState.errorMsg = errorMsg;
+        downloadState.status = `Error: ${errorMsg}`;
+
+        if (tabId) {
+          chrome.action.setBadgeText({ tabId: tabId, text: '⚠️' });
+        }
+      }
+    );
+
+    downloadState.downloader = downloader;
+    activeDownloads.set(itemId, downloadState);
+
+    downloader.start();
+    sendResponse({ status: 'started' });
+    return true;
+  }
+
+  if (request.action === 'GET_BACKGROUND_DOWNLOAD_STATUS') {
+    const { itemId } = request;
+    const downloadState = activeDownloads.get(itemId);
+
+    if (downloadState) {
+      sendResponse({
+        exists: true,
+        percent: downloadState.percent,
+        status: downloadState.status,
+        isCompleted: downloadState.isCompleted,
+        isError: downloadState.isError,
+        errorMsg: downloadState.errorMsg
+      });
+    } else {
+      sendResponse({ exists: false });
+    }
     return true;
   }
 });
