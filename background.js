@@ -1,4 +1,4 @@
-// background.js - Service Worker VideoStreamDownloader (Filtrado de Master Playlists)
+// background.js - Service Worker VideoStreamDownloader
 
 const tabMediaStore = new Map();
 
@@ -74,16 +74,13 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     const tabStore = tabMediaStore.get(details.tabId);
 
-    // Si la nueva URL es una Master Playlist:
     if (isMasterUrl(url)) {
-      // Eliminar sub-playlists secundarias (como index.m3u8) que se hayan capturado antes
       for (const [storedUrl, item] of tabStore.entries()) {
         if (!isMasterUrl(storedUrl) && storedUrl.includes('.m3u8')) {
           tabStore.delete(storedUrl);
         }
       }
     } else if (url.includes('.m3u8')) {
-      // Si no es master pero ya tenemos una master playlist guardada, ignorar sub-playlists secundarias
       const hasMaster = Array.from(tabStore.keys()).some(u => isMasterUrl(u));
       if (hasMaster) {
         return;
@@ -116,7 +113,9 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     chrome.tabs.get(details.tabId, (tab) => {
       if (!chrome.runtime.lastError && tab && tab.title) {
-        mediaItem.pageTitle = tab.title;
+        if (mediaItem.pageTitle === 'Vídeo Detectado') {
+          mediaItem.pageTitle = tab.title;
+        }
       }
     });
   },
@@ -128,6 +127,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'SET_TAB_TITLE') {
+    const tabId = sender.tab ? sender.tab.id : request.tabId;
+    if (tabId && tabMediaStore.has(tabId) && request.title) {
+      const tabStore = tabMediaStore.get(tabId);
+      for (const item of tabStore.values()) {
+        item.pageTitle = request.title;
+      }
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (request.action === 'GET_MEDIA_ITEMS') {
     const tabId = request.tabId;
     const tabMap = tabMediaStore.get(tabId);
@@ -144,7 +155,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     }
 
-    // Filtrar preferentemente solo Master Playlists si existen
     const masterItems = items.filter(i => isMasterUrl(i.url));
     if (masterItems.length > 0) {
       items = masterItems;

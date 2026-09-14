@@ -1,4 +1,4 @@
-// popup.js - VideoStreamDownloader (Modo Sencillo vs Opciones Avanzadas)
+// popup.js - VideoStreamDownloader (Modo Sencillo vs Opciones Avanzadas + Nombre del Partido)
 
 function escapeHtml(str) {
   return String(str || '')
@@ -23,14 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeTabOrigin = 'https://rfcylf.isquad.tv/';
   let isAdvancedEnabled = false;
 
-  // Cargar preferencia guardada del checkbox "Opciones avanzadas"
   chrome.storage.local.get(['showAdvancedOptions'], (result) => {
     isAdvancedEnabled = !!result.showAdvancedOptions;
     chkAdvanced.checked = isAdvancedEnabled;
     toggleAdvancedRows(isAdvancedEnabled);
   });
 
-  // Evento al cambiar el checkbox
   chkAdvanced.addEventListener('change', (e) => {
     isAdvancedEnabled = e.target.checked;
     chrome.storage.local.set({ showAdvancedOptions: isAdvancedEnabled });
@@ -109,7 +107,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const isMaster = item.url.toLowerCase().includes('master') || item.type.includes('Master');
       const badgeStyle = isMaster ? 'background-color: #3df59e; color: #000;' : '';
 
-      const titleClean = (item.pageTitle || activeTabTitle).replace(/[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ_-]/g, '').trim();
+      const rawTitle = item.pageTitle || activeTabTitle || 'Partido iSquad';
+      const displayTitle = rawTitle.trim();
+      const cleanTitleForCmd = rawTitle.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
 
       const advancedShowClass = isAdvancedEnabled ? 'show' : '';
 
@@ -118,11 +118,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="badge-type" style="${badgeStyle}">${escapeHtml(item.type)}</span>
           <span class="media-time">${escapeHtml(item.timestamp)}</span>
         </div>
-        <div class="media-title" title="${escapeHtml(titleClean)}">${escapeHtml(titleClean || 'Vídeo Detectado')}</div>
+        <div class="media-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</div>
         <div class="media-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
 
-        <!-- Botón único y destacado de Descarga Directa -->
-        <button class="btn-download-direct" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}">
+        <!-- Descarga Directa Button -->
+        <button class="btn-download-direct" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}" data-title="${escapeHtml(displayTitle)}">
           📥 Descargar Vídeo Directo (.mp4 / .ts)
         </button>
 
@@ -137,12 +137,12 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </div>
 
-        <!-- Opciones avanzadas ocultas por defecto (se muestran solo al marcar el checkbox) -->
+        <!-- Comandos secundarios -->
         <div class="action-row advanced-options ${advancedShowClass}">
-          <button class="btn-action btn-copy-ffmpeg" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(titleClean)}">
+          <button class="btn-action btn-copy-ffmpeg" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(cleanTitleForCmd)}">
             ⚡ FFmpeg
           </button>
-          <button class="btn-action btn-copy-ytdlp" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(titleClean)}">
+          <button class="btn-action btn-copy-ytdlp" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(cleanTitleForCmd)}">
             🔻 yt-dlp
           </button>
           <button class="btn-action btn-copy-url" data-url="${escapeHtml(item.url)}">
@@ -163,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = e.currentTarget;
         const url = target.getAttribute('data-url');
         const itemId = target.getAttribute('data-id');
+        const matchTitle = target.getAttribute('data-title') || 'partido_isquad';
 
         const progressBox = document.getElementById(`progress_${itemId}`);
         const statusText = document.getElementById(`statusText_${itemId}`);
@@ -174,9 +175,10 @@ document.addEventListener('DOMContentLoaded', () => {
         target.innerHTML = '⌛ Descargando...';
         progressBox.style.display = 'block';
 
-        const sanitizeFilename = (activeTabTitle || 'video_stream')
-          .replace(/[^a-zA-Z0-9_-]/g, '_')
-          .substring(0, 40);
+        // Sanear el nombre del archivo preservando letras y espacios
+        const sanitizeFilename = matchTitle
+          .replace(/[\\/:*?"<>|]/g, '_')
+          .trim();
 
         const downloader = new window.HlsDownloader(
           url,
