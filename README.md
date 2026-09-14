@@ -22,7 +22,7 @@ Extensión de navegador ligera, moderna y universal diseñada para la **descarga
 2. Activa el **Modo de desarrollador** (arriba a la derecha).
 3. Haz clic en **Cargar descomprimida** y selecciona la carpeta:
    ```
-   /Users/ics/Repos/icasadosar/isquad-video-downloader-extension
+   /Users/ics/Repos/icasadosar/videostreamdownloader
    ```
 
 ---
