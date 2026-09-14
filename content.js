@@ -1,7 +1,20 @@
 // content.js - Escáner y Extracción de Fecha y Título del Partido
 
+function safeSendMessage(message) {
+  try {
+    if (chrome && chrome.runtime && chrome.runtime.id) {
+      chrome.runtime.sendMessage(message, () => {
+        if (chrome.runtime.lastError) {
+          // Ignorar silenciosamente si el contexto ha caducado
+        }
+      });
+    }
+  } catch (e) {
+    // Ignorar si el contexto fue invalidado por recarga de la extensión
+  }
+}
+
 function extractMatchTitleAndDate() {
-  // 1. Extraer fecha desde el elemento <div class="date-over">
   let dateText = '';
   const dateEl = document.querySelector('.date-over, .match-date, .video-date');
   if (dateEl && dateEl.textContent.trim()) {
@@ -14,7 +27,6 @@ function extractMatchTitleAndDate() {
     }
   }
 
-  // 2. Extraer el título del partido (prioridad en .modern-breadcrumb-item.active)
   let titleText = '';
   const activeBreadcrumb = document.querySelector('.modern-breadcrumb-item.active, [aria-current="page"], .modern-breadcrumb-item:last-child');
   if (activeBreadcrumb && activeBreadcrumb.textContent.trim()) {
@@ -32,7 +44,6 @@ function extractMatchTitleAndDate() {
 
   if (!titleText) titleText = document.title || 'partido_isquad';
 
-  // 3. Combinar Fecha + Título (Ejemplo: "14-09-2026 - U.D. Santa Marta vs U.D. Santa Marta")
   if (dateText) {
     return `${dateText} - ${titleText}`;
   }
@@ -40,11 +51,14 @@ function extractMatchTitleAndDate() {
 }
 
 function scanPageMedia() {
+  // Comprobar que el contexto de la extensión sigue vivo
+  if (!chrome.runtime || !chrome.runtime.id) return;
+
   const discoveredUrls = new Set();
   const fullMatchTitle = extractMatchTitleAndDate();
 
   if (fullMatchTitle) {
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: 'SET_TAB_TITLE',
       title: fullMatchTitle
     });
@@ -71,7 +85,7 @@ function scanPageMedia() {
   });
 
   discoveredUrls.forEach((url) => {
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: 'ADD_DISCOVERED_MEDIA',
       url: url,
       pageTitle: fullMatchTitle,
@@ -83,7 +97,9 @@ function scanPageMedia() {
 scanPageMedia();
 
 const observer = new MutationObserver(() => {
-  scanPageMedia();
+  if (chrome.runtime && chrome.runtime.id) {
+    scanPageMedia();
+  }
 });
 
 observer.observe(document.body, {
