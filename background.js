@@ -1,4 +1,4 @@
-// background.js - Service Worker VideoStreamDownloader
+// background.js - Service Worker VideoStreamDownloader (Deduplicación de Master Playlists)
 
 const tabMediaStore = new Map();
 
@@ -74,9 +74,11 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     const tabStore = tabMediaStore.get(details.tabId);
 
+    // Al recibir un nuevo master.m3u8 (por renovación de token o recarga del reproductor),
+    // reemplazamos las listas anteriores por la más reciente
     if (isMasterUrl(url)) {
-      for (const [storedUrl, item] of tabStore.entries()) {
-        if (!isMasterUrl(storedUrl) && storedUrl.includes('.m3u8')) {
+      for (const [storedUrl] of tabStore.entries()) {
+        if (storedUrl.includes('.m3u8')) {
           tabStore.delete(storedUrl);
         }
       }
@@ -157,7 +159,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     const masterItems = items.filter(i => isMasterUrl(i.url));
     if (masterItems.length > 0) {
-      items = masterItems;
+      // Devolver únicamente la lista maestra más reciente (la última registrada)
+      items = [masterItems[masterItems.length - 1]];
     }
 
     sendResponse({ items: items });
