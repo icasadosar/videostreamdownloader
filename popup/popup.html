@@ -33,15 +33,18 @@
       </div>
     </header>
 
-    <!-- Tab Info Banner & Advanced Checkbox -->
+    <!-- Tab Info Banner & Advanced Sliding Switch -->
     <div class="tab-banner">
       <div class="domain-info">
         <div class="status-indicator"></div>
         <span id="tabDomain">Buscando transmisiones...</span>
       </div>
-      <label class="advanced-toggle" title="Mostrar comandos para terminal (FFmpeg / yt-dlp)">
-        <input type="checkbox" id="chkAdvanced">
-        <span>⚙️ Avanzado</span>
+      <label class="toggle-switch" title="Mostrar opciones avanzadas (FFmpeg / yt-dlp)">
+        <span class="toggle-label">Avanzado</span>
+        <div class="switch">
+          <input type="checkbox" id="chkAdvanced">
+          <span class="slider"></span>
+        </div>
       </label>
     </div>
 
