@@ -8,16 +8,19 @@ class HlsDownloader {
     this.onComplete = onComplete || (() => {});
     this.onError = onError || (() => {});
     this.isCancelled = false;
+    this.abortController = new AbortController();
   }
 
   async start() {
     try {
+      if (this.isCancelled) return;
       this.onProgress(0, 'Conectando con el servidor HLS...');
 
       const response = await fetch(this.m3u8Url, {
         method: 'GET',
         credentials: 'omit',
-        mode: 'cors'
+        mode: 'cors',
+        signal: this.abortController ? this.abortController.signal : undefined
       });
 
       if (!response.ok) {
@@ -25,6 +28,7 @@ class HlsDownloader {
       }
       
       const playlistText = await response.text();
+      if (this.isCancelled) return;
 
       if (playlistText.includes('#EXT-X-STREAM-INF')) {
         const lines = playlistText.split('\n');
@@ -37,16 +41,25 @@ class HlsDownloader {
           }
         }
         if (subPlaylistUrl) {
+          if (this.isCancelled) return;
           this.onProgress(5, 'Cargando flujo de alta definición...');
-          const subRes = await fetch(subPlaylistUrl, { method: 'GET', mode: 'cors' });
+          const subRes = await fetch(subPlaylistUrl, {
+            method: 'GET',
+            mode: 'cors',
+            signal: this.abortController ? this.abortController.signal : undefined
+          });
           if (!subRes.ok) throw new Error(`HTTP Error ${subRes.status}`);
           const subText = await subRes.text();
+          if (this.isCancelled) return;
           return await this.downloadSegments(subText, subPlaylistUrl);
         }
       }
 
       return await this.downloadSegments(playlistText, this.m3u8Url);
     } catch (err) {
+      if (this.isCancelled || (err && err.name === 'AbortError')) {
+        return;
+      }
       this.onError(err.message || 'Error al descargar la transmisión.');
     }
   }
@@ -78,12 +91,18 @@ class HlsDownloader {
 
       const batch = segmentUrls.slice(i, i + concurrency);
       const batchPromises = batch.map(async (url) => {
-        const res = await fetch(url, { method: 'GET', mode: 'cors' });
+        const res = await fetch(url, {
+          method: 'GET',
+          mode: 'cors',
+          signal: this.abortController ? this.abortController.signal : undefined
+        });
         if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
         return await res.arrayBuffer();
       });
 
       const results = await Promise.all(batchPromises);
+      if (this.isCancelled) return;
+
       for (const buffer of results) {
         chunks.push(new Uint8Array(buffer));
       }
@@ -93,19 +112,25 @@ class HlsDownloader {
       this.onProgress(percent, `Descargando fragmento ${completed} de ${total} (${percent}%)`);
     }
 
+    if (this.isCancelled) return;
+
     this.onProgress(99, 'Ensamblando archivo de vídeo...');
     const blob = new Blob(chunks, { type: 'video/mp2t' });
+
+    if (this.isCancelled) return;
     
     // Crear data URL / Blob en Service Worker o llamar a API de descargas
     if (typeof FileReader !== 'undefined') {
       const reader = new FileReader();
       reader.onloadend = () => {
+        if (this.isCancelled) return;
         const dataUrl = reader.result;
         chrome.downloads.download({
           url: dataUrl,
           filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
           saveAs: false
         }, () => {
+          if (this.isCancelled) return;
           this.onProgress(100, '¡Descarga completada!');
           this.onComplete();
         });
@@ -119,6 +144,7 @@ class HlsDownloader {
         filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
         saveAs: false
       }, () => {
+        if (this.isCancelled) return;
         this.onProgress(100, '¡Descarga completada!');
         this.onComplete();
       });
@@ -127,6 +153,11 @@ class HlsDownloader {
 
   cancel() {
     this.isCancelled = true;
+    try {
+      if (this.abortController) {
+        this.abortController.abort();
+      }
+    } catch (e) {}
   }
 }
 

@@ -136,6 +136,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="progress-bar-bg">
             <div class="progress-bar-fill" id="barFill_${item.id}"></div>
           </div>
+          <div class="progress-actions">
+            <button class="btn-cancel-download" id="btnCancel_${item.id}" data-id="${escapeHtml(item.id)}" title="Cancelar descarga">
+              ✕ Cancelar Descarga
+            </button>
+          </div>
         </div>
 
         <!-- Comandos secundarios -->
@@ -170,6 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const statusText = document.getElementById(`statusText_${itemId}`);
       const percentText = document.getElementById(`percentText_${itemId}`);
       const barFill = document.getElementById(`barFill_${itemId}`);
+      const btnCancel = document.getElementById(`btnCancel_${itemId}`);
 
       if (!target || !progressBox) return;
 
@@ -183,14 +189,17 @@ document.addEventListener('DOMContentLoaded', () => {
         target.style.backgroundColor = '#22c55e';
         target.style.opacity = '1';
         target.disabled = true;
+        if (btnCancel) btnCancel.style.display = 'none';
       } else if (res.isError) {
         target.disabled = false;
         target.style.opacity = '1';
         target.innerHTML = '⚠️ Reintentar Descarga';
+        if (btnCancel) btnCancel.style.display = 'none';
       } else {
         target.disabled = true;
         target.style.opacity = '0.6';
         target.innerHTML = '⌛ Descargando en segundo plano...';
+        if (btnCancel) btnCancel.style.display = 'inline-flex';
         startPollingDownloadState(itemId);
       }
     });
@@ -211,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusText = document.getElementById(`statusText_${itemId}`);
         const percentText = document.getElementById(`percentText_${itemId}`);
         const barFill = document.getElementById(`barFill_${itemId}`);
+        const btnCancel = document.getElementById(`btnCancel_${itemId}`);
 
         if (barFill) barFill.style.width = `${res.percent}%`;
         if (percentText) percentText.textContent = `${res.percent}%`;
@@ -225,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
             target.style.opacity = '1';
             target.disabled = true;
           }
+          if (btnCancel) btnCancel.style.display = 'none';
           showToast('¡Vídeo guardado en tus descargas!');
         } else if (res.isError) {
           clearInterval(intervalId);
@@ -234,12 +245,48 @@ document.addEventListener('DOMContentLoaded', () => {
             target.style.opacity = '1';
             target.innerHTML = '⚠️ Reintentar Descarga';
           }
+          if (btnCancel) btnCancel.style.display = 'none';
           showToast('Error en descarga. Activa Opciones Avanzadas para FFmpeg.');
         }
       });
     }, 500);
 
     pollIntervals.set(itemId, intervalId);
+  }
+
+  function cancelDownload(itemId) {
+    if (pollIntervals.has(itemId)) {
+      clearInterval(pollIntervals.get(itemId));
+      pollIntervals.delete(itemId);
+    }
+
+    chrome.runtime.sendMessage({
+      action: 'CANCEL_BACKGROUND_DOWNLOAD',
+      itemId: itemId
+    }, () => {
+      resetDownloadCard(itemId);
+      showToast('Descarga cancelada');
+    });
+  }
+
+  function resetDownloadCard(itemId) {
+    const target = document.getElementById(`btn_${itemId}`);
+    const progressBox = document.getElementById(`progress_${itemId}`);
+    const barFill = document.getElementById(`barFill_${itemId}`);
+    const percentText = document.getElementById(`percentText_${itemId}`);
+    const statusText = document.getElementById(`statusText_${itemId}`);
+
+    if (progressBox) progressBox.style.display = 'none';
+    if (barFill) barFill.style.width = '0%';
+    if (percentText) percentText.textContent = '0%';
+    if (statusText) statusText.textContent = 'Iniciando descarga...';
+
+    if (target) {
+      target.disabled = false;
+      target.style.opacity = '1';
+      target.style.backgroundColor = '';
+      target.innerHTML = '📥 Descargar Vídeo Directo (.mp4 / .ts)';
+    }
   }
 
   function attachCardEventListeners() {
@@ -252,11 +299,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const progressBox = document.getElementById(`progress_${itemId}`);
         const statusText = document.getElementById(`statusText_${itemId}`);
+        const btnCancel = document.getElementById(`btnCancel_${itemId}`);
 
         target.disabled = true;
         target.style.opacity = '0.6';
         target.innerHTML = '⌛ Descargando en segundo plano...';
         progressBox.style.display = 'block';
+        if (btnCancel) btnCancel.style.display = 'inline-flex';
 
         const sanitizeFilename = matchTitle
           .replace(/[\\/:*?"<>|]/g, '_')
@@ -275,10 +324,18 @@ document.addEventListener('DOMContentLoaded', () => {
             target.style.opacity = '1';
             target.innerHTML = '⚠️ Reintentar Descarga';
             statusText.textContent = 'Error al iniciar descarga en segundo plano';
+            if (btnCancel) btnCancel.style.display = 'none';
             return;
           }
           startPollingDownloadState(itemId);
         });
+      });
+    });
+
+    document.querySelectorAll('.btn-cancel-download').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const itemId = e.currentTarget.getAttribute('data-id');
+        cancelDownload(itemId);
       });
     });
 

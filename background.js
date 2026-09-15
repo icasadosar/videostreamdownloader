@@ -257,4 +257,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     return true;
   }
+
+  if (request.action === 'CANCEL_BACKGROUND_DOWNLOAD') {
+    const { itemId } = request;
+    const downloadState = activeDownloads.get(itemId);
+
+    if (downloadState) {
+      if (downloadState.downloader) {
+        downloadState.downloader.cancel();
+      }
+      const tabId = downloadState.tabId;
+      activeDownloads.delete(itemId);
+
+      if (tabId) {
+        const tabMap = tabMediaStore.get(tabId);
+        const count = tabMap ? tabMap.size : 0;
+        chrome.action.setBadgeText({ tabId: tabId, text: count > 0 ? String(count) : '' });
+        chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#3df59e' });
+        chrome.action.setBadgeTextColor({ tabId: tabId, color: '#000000' });
+      }
+    }
+
+    sendResponse({ success: true, cancelled: true });
+    return true;
+  }
 });
