@@ -1,4 +1,4 @@
-// popup.js - VideoStreamDownloader
+// popup.js - VideoStreamDownloader (Descarga persistente en segundo plano)
 
 function escapeHtml(str) {
   return String(str || '')
@@ -16,10 +16,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnClear = document.getElementById('btnClear');
   const toast = document.getElementById('toast');
   const toastMsg = document.getElementById('toastMsg');
+  const chkAdvanced = document.getElementById('chkAdvanced');
 
   let currentTabId = null;
   let activeTabTitle = 'video_stream';
   let activeTabOrigin = 'https://rfcylf.isquad.tv/';
+  let isAdvancedEnabled = false;
+  let pollIntervals = new Map();
+
+  chrome.storage.local.get(['showAdvancedOptions'], (result) => {
+    isAdvancedEnabled = !!result.showAdvancedOptions;
+    chkAdvanced.checked = isAdvancedEnabled;
+    toggleAdvancedRows(isAdvancedEnabled);
+  });
+
+  chkAdvanced.addEventListener('change', (e) => {
+    isAdvancedEnabled = e.target.checked;
+    chrome.storage.local.set({ showAdvancedOptions: isAdvancedEnabled });
+    toggleAdvancedRows(isAdvancedEnabled);
+  });
+
+  function toggleAdvancedRows(show) {
+    document.querySelectorAll('.action-row.advanced-options').forEach(el => {
+      if (show) {
+        el.classList.add('show');
+      } else {
+        el.classList.remove('show');
+      }
+    });
+  }
 
   chrome.tabs.query({ active: true }, (tabs) => {
     let targetTab = null;
@@ -50,7 +75,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const items = response.items;
+      let items = response.items;
+
+      const masterItems = items.filter(i => i.url.toLowerCase().includes('master') || i.url.toLowerCase().includes('playlist.m3u8'));
+      if (masterItems.length > 0) {
+        items = masterItems;
+      }
+
       if (!items || items.length === 0) {
         showEmptyState();
       } else {
@@ -74,21 +105,25 @@ document.addEventListener('DOMContentLoaded', () => {
       card.className = 'media-card';
       card.id = `card_${item.id}`;
 
-      const isMaster = item.url.includes('master');
+      const isMaster = item.url.toLowerCase().includes('master') || item.type.includes('Master');
       const badgeStyle = isMaster ? 'background-color: #3df59e; color: #000;' : '';
 
-      const titleClean = (item.pageTitle || activeTabTitle).replace(/[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ_-]/g, '').trim();
+      const rawTitle = item.pageTitle || activeTabTitle || 'Partido iSquad';
+      const displayTitle = rawTitle.trim();
+      const cleanTitleForCmd = rawTitle.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+
+      const advancedShowClass = isAdvancedEnabled ? 'show' : '';
 
       card.innerHTML = `
         <div class="media-card-header">
           <span class="badge-type" style="${badgeStyle}">${escapeHtml(item.type)}</span>
           <span class="media-time">${escapeHtml(item.timestamp)}</span>
         </div>
-        <div class="media-title" title="${escapeHtml(titleClean)}">${escapeHtml(titleClean || 'Vídeo Detectado')}</div>
+        <div class="media-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</div>
         <div class="media-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
 
         <!-- Descarga Directa Button -->
-        <button class="btn-download-direct" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}">
+        <button class="btn-download-direct" id="btn_${item.id}" data-url="${escapeHtml(item.url)}" data-id="${escapeHtml(item.id)}" data-title="${escapeHtml(displayTitle)}">
           📥 Descargar Vídeo Directo (.mp4 / .ts)
         </button>
 
@@ -101,14 +136,19 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="progress-bar-bg">
             <div class="progress-bar-fill" id="barFill_${item.id}"></div>
           </div>
+          <div class="progress-actions">
+            <button class="btn-cancel-download" id="btnCancel_${item.id}" data-id="${escapeHtml(item.id)}" title="Cancelar descarga">
+              ✕ Cancelar Descarga
+            </button>
+          </div>
         </div>
 
-        <!-- Comandos secundarios con --referer -->
-        <div class="action-row" style="margin-top: 8px;">
-          <button class="btn-action btn-copy-ffmpeg" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(titleClean)}">
+        <!-- Comandos secundarios -->
+        <div class="action-row advanced-options ${advancedShowClass}">
+          <button class="btn-action btn-copy-ffmpeg" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(cleanTitleForCmd)}">
             ⚡ FFmpeg
           </button>
-          <button class="btn-action btn-copy-ytdlp" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(titleClean)}">
+          <button class="btn-action btn-copy-ytdlp" data-url="${escapeHtml(item.url)}" data-title="${escapeHtml(cleanTitleForCmd)}">
             🔻 yt-dlp
           </button>
           <button class="btn-action btn-copy-url" data-url="${escapeHtml(item.url)}">
@@ -118,9 +158,147 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
 
       mediaListContainer.appendChild(card);
+
+      // Comprobar si hay una descarga en segundo plano activa para este ítem al abrir el popup
+      checkBackgroundDownloadState(item.id, item.url);
     });
 
     attachCardEventListeners();
+  }
+
+  function checkBackgroundDownloadState(itemId, url) {
+    chrome.runtime.sendMessage({
+      action: 'GET_BACKGROUND_DOWNLOAD_STATUS',
+      itemId: itemId,
+      url: url,
+      tabId: currentTabId
+    }, (res) => {
+      if (chrome.runtime.lastError || !res || !res.exists) return;
+
+      const target = document.getElementById(`btn_${itemId}`);
+      const progressBox = document.getElementById(`progress_${itemId}`);
+      const statusText = document.getElementById(`statusText_${itemId}`);
+      const percentText = document.getElementById(`percentText_${itemId}`);
+      const barFill = document.getElementById(`barFill_${itemId}`);
+      const btnCancel = document.getElementById(`btnCancel_${itemId}`);
+
+      if (!target || !progressBox) return;
+
+      progressBox.style.display = 'block';
+      barFill.style.width = `${res.percent}%`;
+      percentText.textContent = `${res.percent}%`;
+      statusText.textContent = res.status;
+
+      if (res.isCompleted) {
+        target.innerHTML = '✅ ¡Descargado!';
+        target.style.backgroundColor = '#22c55e';
+        target.style.opacity = '1';
+        target.disabled = true;
+        if (btnCancel) btnCancel.style.display = 'none';
+      } else if (res.isError) {
+        target.disabled = false;
+        target.style.opacity = '1';
+        target.innerHTML = '⚠️ Reintentar Descarga';
+        if (btnCancel) btnCancel.style.display = 'none';
+      } else {
+        target.disabled = true;
+        target.style.opacity = '0.6';
+        target.innerHTML = '⌛ Descargando en segundo plano...';
+        if (btnCancel) btnCancel.style.display = 'inline-flex';
+        startPollingDownloadState(itemId, url);
+      }
+    });
+  }
+
+  function startPollingDownloadState(itemId, url) {
+    if (pollIntervals.has(itemId)) return;
+
+    const intervalId = setInterval(() => {
+      chrome.runtime.sendMessage({
+        action: 'GET_BACKGROUND_DOWNLOAD_STATUS',
+        itemId: itemId,
+        url: url,
+        tabId: currentTabId
+      }, (res) => {
+        if (chrome.runtime.lastError || !res || !res.exists) {
+          clearInterval(intervalId);
+          pollIntervals.delete(itemId);
+          return;
+        }
+
+        const target = document.getElementById(`btn_${itemId}`);
+        const statusText = document.getElementById(`statusText_${itemId}`);
+        const percentText = document.getElementById(`percentText_${itemId}`);
+        const barFill = document.getElementById(`barFill_${itemId}`);
+        const btnCancel = document.getElementById(`btnCancel_${itemId}`);
+
+        if (barFill) barFill.style.width = `${res.percent}%`;
+        if (percentText) percentText.textContent = `${res.percent}%`;
+        if (statusText) statusText.textContent = res.status;
+
+        if (res.isCompleted) {
+          clearInterval(intervalId);
+          pollIntervals.delete(itemId);
+          if (target) {
+            target.innerHTML = '✅ ¡Descargado!';
+            target.style.backgroundColor = '#22c55e';
+            target.style.opacity = '1';
+            target.disabled = true;
+          }
+          if (btnCancel) btnCancel.style.display = 'none';
+          showToast('¡Vídeo guardado en tus descargas!');
+        } else if (res.isError) {
+          clearInterval(intervalId);
+          pollIntervals.delete(itemId);
+          if (target) {
+            target.disabled = false;
+            target.style.opacity = '1';
+            target.innerHTML = '⚠️ Reintentar Descarga';
+          }
+          if (btnCancel) btnCancel.style.display = 'none';
+          showToast('Error en descarga. Activa Opciones Avanzadas para FFmpeg.');
+        }
+      });
+    }, 500);
+
+    pollIntervals.set(itemId, intervalId);
+  }
+
+  function cancelDownload(itemId, url) {
+    if (pollIntervals.has(itemId)) {
+      clearInterval(pollIntervals.get(itemId));
+      pollIntervals.delete(itemId);
+    }
+
+    resetDownloadCard(itemId);
+    showToast('Descarga cancelada');
+
+    chrome.runtime.sendMessage({
+      action: 'CANCEL_BACKGROUND_DOWNLOAD',
+      itemId: itemId,
+      url: url,
+      tabId: currentTabId
+    });
+  }
+
+  function resetDownloadCard(itemId) {
+    const target = document.getElementById(`btn_${itemId}`);
+    const progressBox = document.getElementById(`progress_${itemId}`);
+    const barFill = document.getElementById(`barFill_${itemId}`);
+    const percentText = document.getElementById(`percentText_${itemId}`);
+    const statusText = document.getElementById(`statusText_${itemId}`);
+
+    if (progressBox) progressBox.style.display = 'none';
+    if (barFill) barFill.style.width = '0%';
+    if (percentText) percentText.textContent = '0%';
+    if (statusText) statusText.textContent = 'Iniciando descarga...';
+
+    if (target) {
+      target.disabled = false;
+      target.style.opacity = '1';
+      target.style.backgroundColor = '';
+      target.innerHTML = '📥 Descargar Vídeo Directo (.mp4 / .ts)';
+    }
   }
 
   function attachCardEventListeners() {
@@ -129,45 +307,49 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = e.currentTarget;
         const url = target.getAttribute('data-url');
         const itemId = target.getAttribute('data-id');
+        const matchTitle = target.getAttribute('data-title') || 'video_stream';
 
         const progressBox = document.getElementById(`progress_${itemId}`);
         const statusText = document.getElementById(`statusText_${itemId}`);
-        const percentText = document.getElementById(`percentText_${itemId}`);
-        const barFill = document.getElementById(`barFill_${itemId}`);
+        const btnCancel = document.getElementById(`btnCancel_${itemId}`);
 
         target.disabled = true;
         target.style.opacity = '0.6';
-        target.innerHTML = '⌛ Descargando...';
+        target.innerHTML = '⌛ Descargando en segundo plano...';
         progressBox.style.display = 'block';
+        if (btnCancel) btnCancel.style.display = 'inline-flex';
 
-        const sanitizeFilename = (activeTabTitle || 'video_stream')
-          .replace(/[^a-zA-Z0-9_-]/g, '_')
-          .substring(0, 40);
+        const sanitizeFilename = matchTitle
+          .replace(/[\\/:*?"<>|]/g, '_')
+          .trim();
 
-        const downloader = new window.HlsDownloader(
-          url,
-          `${sanitizeFilename}.mp4`,
-          (percent, message) => {
-            barFill.style.width = `${percent}%`;
-            percentText.textContent = `${percent}%`;
-            statusText.textContent = message;
-          },
-          () => {
-            target.innerHTML = '✅ ¡Descargado!';
-            target.style.backgroundColor = '#22c55e';
-            target.style.opacity = '1';
-            showToast('¡Vídeo guardado en tus descargas!');
-          },
-          (errorMsg) => {
+        // Solicitar al Service Worker de fondo que inicie la descarga
+        chrome.runtime.sendMessage({
+          action: 'START_BACKGROUND_DOWNLOAD',
+          itemId: itemId,
+          url: url,
+          filename: `${sanitizeFilename}.mp4`,
+          tabId: currentTabId
+        }, (res) => {
+          if (chrome.runtime.lastError) {
             target.disabled = false;
             target.style.opacity = '1';
             target.innerHTML = '⚠️ Reintentar Descarga';
-            statusText.textContent = `Error: ${errorMsg}`;
-            showToast('Error en descarga directa. Prueba con la opción FFmpeg.');
+            statusText.textContent = 'Error al iniciar descarga en segundo plano';
+            if (btnCancel) btnCancel.style.display = 'none';
+            return;
           }
-        );
+          startPollingDownloadState(itemId, url);
+        });
+      });
+    });
 
-        downloader.start();
+    document.querySelectorAll('.btn-cancel-download').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const itemId = e.currentTarget.getAttribute('data-id');
+        const dlBtn = document.getElementById(`btn_${itemId}`);
+        const url = dlBtn ? dlBtn.getAttribute('data-url') : null;
+        cancelDownload(itemId, url);
       });
     });
 

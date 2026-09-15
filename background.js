@@ -1,6 +1,9 @@
-// background.js - Service Worker VideoStreamDownloader Manifest V3
+// background.js - Service Worker VideoStreamDownloader (Motor de descarga en segundo plano)
+
+importScripts('popup/hlsDownloader.js');
 
 const tabMediaStore = new Map();
+const activeDownloads = new Map(); // downloadId -> { url, filename, percent, status, isCompleted, isError, errorMsg, downloader }
 
 async function setupRefererRules() {
   try {
@@ -56,6 +59,11 @@ function getMediaTypeLabel(url) {
   return 'Stream de Vídeo';
 }
 
+function isMasterUrl(url) {
+  const lower = url.toLowerCase();
+  return lower.includes('master') || lower.includes('playlist.m3u8');
+}
+
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0) return;
@@ -68,6 +76,19 @@ chrome.webRequest.onBeforeRequest.addListener(
     }
 
     const tabStore = tabMediaStore.get(details.tabId);
+
+    if (isMasterUrl(url)) {
+      for (const [storedUrl] of tabStore.entries()) {
+        if (storedUrl.includes('.m3u8')) {
+          tabStore.delete(storedUrl);
+        }
+      }
+    } else if (url.includes('.m3u8')) {
+      const hasMaster = Array.from(tabStore.keys()).some(u => isMasterUrl(u));
+      if (hasMaster) {
+        return;
+      }
+    }
 
     if (tabStore.has(url)) return;
 
@@ -95,7 +116,9 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     chrome.tabs.get(details.tabId, (tab) => {
       if (!chrome.runtime.lastError && tab && tab.title) {
-        mediaItem.pageTitle = tab.title;
+        if (mediaItem.pageTitle === 'Vídeo Detectado') {
+          mediaItem.pageTitle = tab.title;
+        }
       }
     });
   },
@@ -106,7 +129,20 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabMediaStore.delete(tabId);
 });
 
+// Mensajería y control de descargas en segundo plano
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'SET_TAB_TITLE') {
+    const tabId = sender.tab ? sender.tab.id : request.tabId;
+    if (tabId && tabMediaStore.has(tabId) && request.title) {
+      const tabStore = tabMediaStore.get(tabId);
+      for (const item of tabStore.values()) {
+        item.pageTitle = request.title;
+      }
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (request.action === 'GET_MEDIA_ITEMS') {
     const tabId = request.tabId;
     const tabMap = tabMediaStore.get(tabId);
@@ -123,6 +159,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     }
 
+    const masterItems = items.filter(i => isMasterUrl(i.url));
+    if (masterItems.length > 0) {
+      items = [masterItems[masterItems.length - 1]];
+    }
+
     sendResponse({ items: items });
     return true;
   }
@@ -132,6 +173,151 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     tabMediaStore.delete(tabId);
     chrome.action.setBadgeText({ tabId: tabId, text: '' });
     sendResponse({ success: true });
+    return true;
+  }
+
+  // --- MOTOR DE DESCARGA EN SEGUNDO PLANO ---
+  if (request.action === 'START_BACKGROUND_DOWNLOAD') {
+    const { itemId, url, filename, tabId } = request;
+
+    if (activeDownloads.has(itemId)) {
+      sendResponse({ status: 'already_running' });
+      return true;
+    }
+
+    const downloadState = {
+      itemId: itemId,
+      url: url,
+      filename: filename,
+      percent: 0,
+      status: 'Conectando con el servidor HLS...',
+      isCompleted: false,
+      isError: false,
+      errorMsg: '',
+      tabId: tabId
+    };
+
+    const downloader = new self.HlsDownloader(
+      url,
+      filename,
+      (percent, message) => {
+        if (downloadState.isCancelled || !activeDownloads.has(itemId)) return;
+        downloadState.percent = percent;
+        downloadState.status = message;
+
+        // Actualizar el badge en la barra del navegador para mostrar porcentaje de descarga
+        if (tabId) {
+          chrome.action.setBadgeText({ tabId: tabId, text: `${percent}%` });
+          chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#3df59e' });
+          chrome.action.setBadgeTextColor({ tabId: tabId, color: '#000000' });
+        }
+      },
+      () => {
+        if (downloadState.isCancelled || !activeDownloads.has(itemId)) return;
+        downloadState.isCompleted = true;
+        downloadState.percent = 100;
+        downloadState.status = '¡Descarga completada!';
+
+        if (tabId) {
+          chrome.action.setBadgeText({ tabId: tabId, text: '✅' });
+        }
+      },
+      (errorMsg) => {
+        if (downloadState.isCancelled || !activeDownloads.has(itemId)) return;
+        downloadState.isError = true;
+        downloadState.errorMsg = errorMsg;
+        downloadState.status = `Error: ${errorMsg}`;
+
+        if (tabId) {
+          chrome.action.setBadgeText({ tabId: tabId, text: '⚠️' });
+        }
+      }
+    );
+
+    downloadState.downloader = downloader;
+    activeDownloads.set(itemId, downloadState);
+
+    downloader.start();
+    sendResponse({ status: 'started' });
+    return true;
+  }
+
+  if (request.action === 'GET_BACKGROUND_DOWNLOAD_STATUS') {
+    const { itemId, url, tabId } = request;
+    let downloadState = activeDownloads.get(itemId);
+
+    if (!downloadState && url) {
+      for (const state of activeDownloads.values()) {
+        if (state.url === url) {
+          downloadState = state;
+          break;
+        }
+      }
+    }
+    if (!downloadState && tabId && activeDownloads.size === 1) {
+      const state = activeDownloads.values().next().value;
+      if (state.tabId === tabId) {
+        downloadState = state;
+      }
+    }
+
+    if (downloadState) {
+      sendResponse({
+        exists: true,
+        percent: downloadState.percent,
+        status: downloadState.status,
+        isCompleted: downloadState.isCompleted,
+        isError: downloadState.isError,
+        errorMsg: downloadState.errorMsg
+      });
+    } else {
+      sendResponse({ exists: false });
+    }
+    return true;
+  }
+
+  if (request.action === 'CANCEL_BACKGROUND_DOWNLOAD') {
+    const { itemId, url, tabId } = request;
+    let targetKey = null;
+    let targetState = null;
+
+    if (itemId && activeDownloads.has(itemId)) {
+      targetKey = itemId;
+      targetState = activeDownloads.get(itemId);
+    } else {
+      for (const [key, state] of activeDownloads.entries()) {
+        if ((url && state.url === url) || (tabId && state.tabId === tabId)) {
+          targetKey = key;
+          targetState = state;
+          break;
+        }
+      }
+    }
+
+    if (!targetState && activeDownloads.size > 0) {
+      const [key, state] = activeDownloads.entries().next().value;
+      targetKey = key;
+      targetState = state;
+    }
+
+    if (targetState) {
+      targetState.isCancelled = true;
+      if (targetState.downloader) {
+        targetState.downloader.cancel();
+      }
+      activeDownloads.delete(targetKey);
+
+      const tId = targetState.tabId || tabId;
+      if (tId) {
+        const tabMap = tabMediaStore.get(tId);
+        const count = tabMap ? tabMap.size : 0;
+        chrome.action.setBadgeText({ tabId: tId, text: count > 0 ? String(count) : '' });
+        chrome.action.setBadgeBackgroundColor({ tabId: tId, color: '#3df59e' });
+        chrome.action.setBadgeTextColor({ tabId: tId, color: '#000000' });
+      }
+    }
+
+    sendResponse({ success: true, cancelled: true });
     return true;
   }
 });
