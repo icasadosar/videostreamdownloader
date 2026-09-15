@@ -160,14 +160,19 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaListContainer.appendChild(card);
 
       // Comprobar si hay una descarga en segundo plano activa para este ítem al abrir el popup
-      checkBackgroundDownloadState(item.id);
+      checkBackgroundDownloadState(item.id, item.url);
     });
 
     attachCardEventListeners();
   }
 
-  function checkBackgroundDownloadState(itemId) {
-    chrome.runtime.sendMessage({ action: 'GET_BACKGROUND_DOWNLOAD_STATUS', itemId: itemId }, (res) => {
+  function checkBackgroundDownloadState(itemId, url) {
+    chrome.runtime.sendMessage({
+      action: 'GET_BACKGROUND_DOWNLOAD_STATUS',
+      itemId: itemId,
+      url: url,
+      tabId: currentTabId
+    }, (res) => {
       if (chrome.runtime.lastError || !res || !res.exists) return;
 
       const target = document.getElementById(`btn_${itemId}`);
@@ -200,16 +205,21 @@ document.addEventListener('DOMContentLoaded', () => {
         target.style.opacity = '0.6';
         target.innerHTML = '⌛ Descargando en segundo plano...';
         if (btnCancel) btnCancel.style.display = 'inline-flex';
-        startPollingDownloadState(itemId);
+        startPollingDownloadState(itemId, url);
       }
     });
   }
 
-  function startPollingDownloadState(itemId) {
+  function startPollingDownloadState(itemId, url) {
     if (pollIntervals.has(itemId)) return;
 
     const intervalId = setInterval(() => {
-      chrome.runtime.sendMessage({ action: 'GET_BACKGROUND_DOWNLOAD_STATUS', itemId: itemId }, (res) => {
+      chrome.runtime.sendMessage({
+        action: 'GET_BACKGROUND_DOWNLOAD_STATUS',
+        itemId: itemId,
+        url: url,
+        tabId: currentTabId
+      }, (res) => {
         if (chrome.runtime.lastError || !res || !res.exists) {
           clearInterval(intervalId);
           pollIntervals.delete(itemId);
@@ -254,18 +264,20 @@ document.addEventListener('DOMContentLoaded', () => {
     pollIntervals.set(itemId, intervalId);
   }
 
-  function cancelDownload(itemId) {
+  function cancelDownload(itemId, url) {
     if (pollIntervals.has(itemId)) {
       clearInterval(pollIntervals.get(itemId));
       pollIntervals.delete(itemId);
     }
 
+    resetDownloadCard(itemId);
+    showToast('Descarga cancelada');
+
     chrome.runtime.sendMessage({
       action: 'CANCEL_BACKGROUND_DOWNLOAD',
-      itemId: itemId
-    }, () => {
-      resetDownloadCard(itemId);
-      showToast('Descarga cancelada');
+      itemId: itemId,
+      url: url,
+      tabId: currentTabId
     });
   }
 
@@ -327,7 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btnCancel) btnCancel.style.display = 'none';
             return;
           }
-          startPollingDownloadState(itemId);
+          startPollingDownloadState(itemId, url);
         });
       });
     });
@@ -335,7 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.btn-cancel-download').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const itemId = e.currentTarget.getAttribute('data-id');
-        cancelDownload(itemId);
+        const dlBtn = document.getElementById(`btn_${itemId}`);
+        const url = dlBtn ? dlBtn.getAttribute('data-url') : null;
+        cancelDownload(itemId, url);
       });
     });
 

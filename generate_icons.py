@@ -1,7 +1,7 @@
 import os
 from PIL import Image, ImageDraw
 
-icons_dir = "/Users/ics/Repos/icasadosar/isquad-video-downloader-extension/icons"
+icons_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 os.makedirs(icons_dir, exist_ok=True)
 
 sizes = [16, 48, 128]

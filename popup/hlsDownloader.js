@@ -122,6 +122,7 @@ class HlsDownloader {
     // Crear data URL / Blob en Service Worker o llamar a API de descargas
     if (typeof FileReader !== 'undefined') {
       const reader = new FileReader();
+      this.fileReader = reader;
       reader.onloadend = () => {
         if (this.isCancelled) return;
         const dataUrl = reader.result;
@@ -129,8 +130,14 @@ class HlsDownloader {
           url: dataUrl,
           filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
           saveAs: false
-        }, () => {
-          if (this.isCancelled) return;
+        }, (downloadId) => {
+          this.chromeDownloadId = downloadId;
+          if (this.isCancelled) {
+            if (downloadId) {
+              try { chrome.downloads.cancel(downloadId); } catch (e) {}
+            }
+            return;
+          }
           this.onProgress(100, '¡Descarga completada!');
           this.onComplete();
         });
@@ -143,8 +150,14 @@ class HlsDownloader {
         url: blobUrl,
         filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
         saveAs: false
-      }, () => {
-        if (this.isCancelled) return;
+      }, (downloadId) => {
+        this.chromeDownloadId = downloadId;
+        if (this.isCancelled) {
+          if (downloadId) {
+            try { chrome.downloads.cancel(downloadId); } catch (e) {}
+          }
+          return;
+        }
         this.onProgress(100, '¡Descarga completada!');
         this.onComplete();
       });
@@ -158,6 +171,16 @@ class HlsDownloader {
         this.abortController.abort();
       }
     } catch (e) {}
+    try {
+      if (this.fileReader) {
+        this.fileReader.abort();
+      }
+    } catch (e) {}
+    if (this.chromeDownloadId) {
+      try {
+        chrome.downloads.cancel(this.chromeDownloadId);
+      } catch (e) {}
+    }
   }
 }
 

@@ -201,6 +201,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       url,
       filename,
       (percent, message) => {
+        if (downloadState.isCancelled || !activeDownloads.has(itemId)) return;
         downloadState.percent = percent;
         downloadState.status = message;
 
@@ -212,6 +213,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
       },
       () => {
+        if (downloadState.isCancelled || !activeDownloads.has(itemId)) return;
         downloadState.isCompleted = true;
         downloadState.percent = 100;
         downloadState.status = '¡Descarga completada!';
@@ -221,6 +223,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
       },
       (errorMsg) => {
+        if (downloadState.isCancelled || !activeDownloads.has(itemId)) return;
         downloadState.isError = true;
         downloadState.errorMsg = errorMsg;
         downloadState.status = `Error: ${errorMsg}`;
@@ -240,8 +243,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'GET_BACKGROUND_DOWNLOAD_STATUS') {
-    const { itemId } = request;
-    const downloadState = activeDownloads.get(itemId);
+    const { itemId, url, tabId } = request;
+    let downloadState = activeDownloads.get(itemId);
+
+    if (!downloadState && url) {
+      for (const state of activeDownloads.values()) {
+        if (state.url === url) {
+          downloadState = state;
+          break;
+        }
+      }
+    }
+    if (!downloadState && tabId && activeDownloads.size === 1) {
+      const state = activeDownloads.values().next().value;
+      if (state.tabId === tabId) {
+        downloadState = state;
+      }
+    }
 
     if (downloadState) {
       sendResponse({
@@ -259,22 +277,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'CANCEL_BACKGROUND_DOWNLOAD') {
-    const { itemId } = request;
-    const downloadState = activeDownloads.get(itemId);
+    const { itemId, url, tabId } = request;
+    let targetKey = null;
+    let targetState = null;
 
-    if (downloadState) {
-      if (downloadState.downloader) {
-        downloadState.downloader.cancel();
+    if (itemId && activeDownloads.has(itemId)) {
+      targetKey = itemId;
+      targetState = activeDownloads.get(itemId);
+    } else {
+      for (const [key, state] of activeDownloads.entries()) {
+        if ((url && state.url === url) || (tabId && state.tabId === tabId)) {
+          targetKey = key;
+          targetState = state;
+          break;
+        }
       }
-      const tabId = downloadState.tabId;
-      activeDownloads.delete(itemId);
+    }
 
-      if (tabId) {
-        const tabMap = tabMediaStore.get(tabId);
+    if (!targetState && activeDownloads.size > 0) {
+      const [key, state] = activeDownloads.entries().next().value;
+      targetKey = key;
+      targetState = state;
+    }
+
+    if (targetState) {
+      targetState.isCancelled = true;
+      if (targetState.downloader) {
+        targetState.downloader.cancel();
+      }
+      activeDownloads.delete(targetKey);
+
+      const tId = targetState.tabId || tabId;
+      if (tId) {
+        const tabMap = tabMediaStore.get(tId);
         const count = tabMap ? tabMap.size : 0;
-        chrome.action.setBadgeText({ tabId: tabId, text: count > 0 ? String(count) : '' });
-        chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#3df59e' });
-        chrome.action.setBadgeTextColor({ tabId: tabId, color: '#000000' });
+        chrome.action.setBadgeText({ tabId: tId, text: count > 0 ? String(count) : '' });
+        chrome.action.setBadgeBackgroundColor({ tabId: tId, color: '#3df59e' });
+        chrome.action.setBadgeTextColor({ tabId: tId, color: '#000000' });
       }
     }
 
