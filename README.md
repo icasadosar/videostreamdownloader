@@ -50,16 +50,19 @@ Muchos portales de emisión en directo o retransmisiones deportivas sirven los c
 
 ## 🚀 Guía de Instalación Rápida
 
-La extensión funciona en cualquier navegador basado en Chromium (**Google Chrome**, **Microsoft Edge**, **Brave**, **Opera**, **Vivaldi**, etc.).
+La extensión es compatible con cualquier navegador basado en Chromium (**Google Chrome**, **Microsoft Edge**, **Brave**, **Opera**, **Vivaldi**, etc.).
 
-### Paso 1: Obtener el código
+### Paso 1: Descargar la extensión
 
-Puedes descargar el proyecto de dos formas:
+<p align="left">
+  <a href="https://github.com/icasadosar/videostreamdownloader/releases/latest">
+    <img src="https://img.shields.io/badge/📥_Descargar_Última_Versión-(.zip)-3df59e?style=for-the-badge&logo=github" alt="Descargar última versión" />
+  </a>
+</p>
 
 - **Opción A (Recomendada para usuarios):**
-  1. Haz clic en el botón verde **Code** arriba a la derecha en GitHub.
-  2. Selecciona **Download ZIP**.
-  3. Descomprime el archivo `.zip` en la carpeta que prefieras de tu ordenador (por ejemplo, en Documentos o Escritorio).
+  1. Haz clic en el botón superior o entra en [Última Release](https://github.com/icasadosar/videostreamdownloader/releases/latest) y descarga el archivo `videostreamdownloader-vX.X.X.zip`.
+  2. Descomprime el archivo `.zip` en la carpeta que prefieras de tu ordenador (por ejemplo, en `Documentos` o `Descargas`).
 
 - **Opción B (Para desarrolladores con Git):**
   ```bash
@@ -73,8 +76,8 @@ Puedes descargar el proyecto de dos formas:
    - En **Microsoft Edge**: escribe `edge://extensions`.
 2. Activa el interruptor **Modo de desarrollador** (suele estar en la esquina superior derecha).
 3. Haz clic en el botón **Cargar descomprimida** (o *Cargar extensión sin empaquetar*).
-4. En el explorador de archivos, **selecciona la carpeta raíz del proyecto** (la carpeta que contiene el archivo `manifest.json`).
-5. ¡Listo! Verás el icono de **VideoStreamDownloader** en tu lista de extensiones.
+4. En el explorador de archivos, **selecciona la carpeta descomprimida** (la carpeta que contiene directamente el archivo `manifest.json`).
+5. ¡Listo! Verás el icono de **VideoStreamDownloader** instalado y listo para usar.
 
 > 💡 **Consejo:** Haz clic en el icono del puzzle de la barra superior de tu navegador y pulsa el pin 📌 junto a **VideoStreamDownloader** para tenerla siempre visible.
 
