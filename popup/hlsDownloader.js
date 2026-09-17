@@ -119,38 +119,28 @@ class HlsDownloader {
 
     if (this.isCancelled) return;
     
-    // Crear data URL / Blob en Service Worker o llamar a API de descargas
-    if (typeof FileReader !== 'undefined') {
-      const reader = new FileReader();
-      this.fileReader = reader;
-      reader.onloadend = () => {
-        if (this.isCancelled) return;
-        const dataUrl = reader.result;
-        chrome.downloads.download({
-          url: dataUrl,
-          filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
-          saveAs: false
-        }, (downloadId) => {
-          this.chromeDownloadId = downloadId;
-          if (this.isCancelled) {
-            if (downloadId) {
-              try { chrome.downloads.cancel(downloadId); } catch (e) {}
-            }
-            return;
-          }
-          this.onProgress(100, '¡Descarga completada!');
-          this.onComplete();
-        });
-      };
-      reader.readAsDataURL(blob);
-    } else {
-      // Fallback
-      const blobUrl = URL.createObjectURL(blob);
+    // Generar Blob URL mediante Offscreen (Service Worker) o URL.createObjectURL (DOM)
+    try {
+      let blobUrl = null;
+      if (typeof window !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        blobUrl = URL.createObjectURL(blob);
+      } else {
+        blobUrl = await this.createBlobUrlViaOffscreen(blob);
+      }
+
+      if (this.isCancelled || !blobUrl) return;
+
+      const finalFilename = this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`;
+
       chrome.downloads.download({
         url: blobUrl,
-        filename: this.filename.endsWith('.mp4') || this.filename.endsWith('.ts') ? this.filename : `${this.filename}.mp4`,
+        filename: finalFilename,
         saveAs: false
       }, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          this.onError(`Error al guardar archivo: ${chrome.runtime.lastError.message}`);
+          return;
+        }
         this.chromeDownloadId = downloadId;
         if (this.isCancelled) {
           if (downloadId) {
@@ -161,7 +151,64 @@ class HlsDownloader {
         this.onProgress(100, '¡Descarga completada!');
         this.onComplete();
       });
+    } catch (err) {
+      if (this.isCancelled) return;
+      this.onError(`Error al ensamblar el vídeo: ${err.message || err}`);
     }
+  }
+
+  async createBlobUrlViaOffscreen(blob) {
+    const offscreenUrl = chrome.runtime.getURL('offscreen/offscreen.html');
+
+    let hasDoc = false;
+    if (chrome.runtime.getContexts) {
+      try {
+        const contexts = await chrome.runtime.getContexts({
+          contextTypes: ['OFFSCREEN_DOCUMENT'],
+          documentUrls: [offscreenUrl]
+        });
+        hasDoc = contexts && contexts.length > 0;
+      } catch (e) {}
+    }
+
+    if (!hasDoc) {
+      try {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen/offscreen.html',
+          reasons: ['BLOBS'],
+          justification: 'Generar URL de Blob para descargar el vídeo ensamblado'
+        });
+      } catch (e) {
+        // Ignorar si ya existía
+      }
+    }
+
+    let offscreenClient = null;
+    if (typeof self !== 'undefined' && self.clients && self.clients.matchAll) {
+      for (let i = 0; i < 15; i++) {
+        const matched = await self.clients.matchAll({ includeUncontrolled: true });
+        offscreenClient = matched.find(c => c.url && c.url.includes('offscreen.html'));
+        if (offscreenClient) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+
+    if (!offscreenClient) {
+      throw new Error('No se pudo comunicar con el entorno offscreen para procesar el vídeo');
+    }
+
+    return new Promise((resolve, reject) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        if (event.data && event.data.success && event.data.url) {
+          resolve(event.data.url);
+        } else {
+          reject(new Error(event.data && event.data.error ? event.data.error : 'Fallo al obtener Blob URL desde offscreen'));
+        }
+      };
+
+      offscreenClient.postMessage(blob, [channel.port2]);
+    });
   }
 
   cancel() {

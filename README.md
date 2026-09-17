@@ -149,6 +149,9 @@ videostreamdownloader/
 ├── content.js               # Content script: extracción del título y fecha del partido
 ├── generate_icons.py        # Script auxiliar para generar los iconos de la extensión
 ├── icons/                   # Iconos en resoluciones 16x16, 48x48 y 128x128
+├── offscreen/               # Documento offscreen para generación de Blob URLs de archivos grandes
+│   ├── offscreen.html
+│   └── offscreen.js
 ├── popup/
 │   ├── hlsDownloader.js     # Módulo de descarga y ensamblado HLS compatible con Service Worker
 │   ├── popup.html           # Interfaz gráfica de la extensión
