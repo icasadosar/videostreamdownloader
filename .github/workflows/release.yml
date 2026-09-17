@@ -60,7 +60,7 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           ZIP_NAME="videostreamdownloader-v${VERSION}.zip"
           echo "Empaquetando extensión en ${ZIP_NAME}..."
-          zip -r "${ZIP_NAME}" manifest.json background.js content.js icons popup
+          zip -r "${ZIP_NAME}" manifest.json background.js content.js icons popup offscreen
           echo "ZIP_PATH=${ZIP_NAME}" >> $GITHUB_ENV
 
       - name: Create GitHub Release
